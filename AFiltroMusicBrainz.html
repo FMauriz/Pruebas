@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>MusicBrainz Explorer Avanzado</title>
+    <style>
+        body { font-family: sans-serif; background: #121214; color: #e1e1e6; padding: 20px; }
+        .box { max-width: 800px; margin: 0 auto; background: #1a1a1e; padding: 20px; border-radius: 8px; border: 1px solid #29292e; }
+        input, select, button { width: 100%; padding: 10px; margin: 8px 0; background: #202024; border: 1px solid #29292e; color: #fff; box-sizing: border-box; border-radius: 4px; }
+        button { background: #eb743b; font-weight: bold; cursor: pointer; }
+        button:hover { background: #d65f27; }
+        button:disabled { background: #29292e; color: #7c7c8a; cursor: not-allowed; }
+        #progress { width: 100%; height: 6px; background: #202024; display: none; margin: 10px 0; overflow: hidden; }
+        #bar { width: 0%; height: 100%; background: #eb743b; transition: width 0.3s; }
+        .status { font-weight: bold; text-align: center; margin: 10px 0; font-size: 14px; }
+        pre { background: #09090a; padding: 15px; border-radius: 6px; overflow-x: auto; max-height: 400px; font-family: monospace; font-size: 13px; }
+    </style>
+</head>
+<body>
+<div class="box">
+    <h2 style="color:#eb743b; text-align:center; margin-top:0;">MusicBrainz API Explorer</h2>
+    <select id="endpoint">
+        <option value="artist">Artista (Artist)</option>
+        <option value="release">Álbum/Edición (Release)</option>
+        <option value="recording">Canción (Recording)</option>
+    </select>
+    <select id="method" onchange="document.getElementById('term').placeholder = this.value==='search'?'Ej: Coldplay':'Ej: cc197bad-dc9c-440d-a5b5-d52ba2e14234'">
+        <option value="search">Búsqueda por Texto (Query)</option>
+        <option value="lookup">Búsqueda por ID (MBID)</option>
+    </select>
+    <input type="text" id="term" placeholder="Ej: Coldplay">
+    
+    <div style="display:flex; gap:10px;">
+        <button id="btn-buscar" onclick="consultar()">Consultar API</button>
+        <button id="btn-exportar" style="background:#29292e;" onclick="exportar()" disabled>Exportar JSON</button>
+    </div>
+    
+    <div id="progress"><div id="bar"></div></div>
+    <div id="status" class="status"></div>
+    <pre id="output">// El resultado JSON aparecerá aquí...</pre>
+</div>
+
+<script>
+    let ultimoJson = null;
+    let ultimoTiempo = 0;
+
+    async function consultar() {
+        const endpoint = document.getElementById("endpoint").value;
+        const method = document.getElementById("method").value;
+        const term = document.getElementById("term").value.trim();
+        const status = document.getElementById("status");
+        const output = document.getElementById("output");
+        const bar = document.getElementById("bar");
+        const progress = document.getElementById("progress");
+        const btnExportar = document.getElementById("btn-exportar");
+
+        if (!term) { status.style.color = "#fc4747"; status.innerText = "Escribe un término o un MBID."; return; }
+
+        btnExportar.disabled = true;
+        progress.style.display = "block";
+        bar.style.width = "20%";
+        status.style.color = "#e1e1e6";
+
+        // Control del límite de tiempo (1.5 segundos entre clics)
+        const ahora = Date.now();
+        const espera = 1500 - (ahora - ultimoTiempo);
+        if (espera > 0) {
+            status.innerText = `Esperando ${Math.ceil(espera/1000)}s para cumplir la norma...`;
+            await new Promise(r => setTimeout(r, espera));
+        }
+        ultimoTiempo = Date.now();
+
+        status.innerText = "Conectando con MusicBrainz...";
+        bar.style.width = "60%";
+
+        let url = `https://musicbrainz.org{endpoint}`;
+        if (method === "search") {
+            url += `/?query=${encodeURIComponent(term)}&fmt=json`;
+        } else {
+            const incParams = endpoint === "artist" ? "releases+release-groups+recordings" : "artists+releases+recordings";
+            url += `/${term}?inc=${incParams}&fmt=json`;
+        }
+
+        try {
+            // Pasamos cabeceras válidas de identificación (User-Agent) que exige MusicBrainz
+            const res = await fetch(url, {
+                method: "GET",
+                headers: {
+                    "Accept": "application/json",
+                    "User-Agent": "MiBuscadorMusical/1.0.0 ( micorreo@ejemplo.com )"
+                }
+            });
+            
+            if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+            
+            const datos = await res.json();
+            ultimoJson = datos;
+            
+            bar.style.width = "100%";
+            status.style.color = "#04d361";
+            status.innerText = "¡Consulta exitosa!";
+            output.innerText = JSON.stringify(datos, null, 4);
+            btnExportar.disabled = false;
+            setTimeout(() => progress.style.display = "none", 1000);
+            
+        } catch (e) {
+            bar.style.width = "100%";
+            status.style.color = "#fc4747";
+            status.innerText = "Fallo de conexión en red local.";
+            output.innerText = `// Detalles del error:\n${e.message}\n\nIMPORTANTE: Recuerda que para usar FETCH debes abrir este archivo desde un servidor local (http://localhost) y no haciendo doble clic (file://).`;
+        }
+    }
+
+    function exportar() {
+        if (!ultimoJson) return;
+        const blob = new Blob([JSON.stringify(ultimoJson, null, 4)], {type: "application/json"});
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `musicbrainz_${Date.now()}.json`;
+        a.click();
+    }
+</script>
+</body>
+</html>
